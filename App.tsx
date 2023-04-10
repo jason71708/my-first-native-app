@@ -13,12 +13,26 @@ import {
   Text,
   useColorScheme,
   View,
-  Pressable,
   GestureResponderEvent,
   StyleSheet,
+  Alert,
 } from 'react-native';
 
+import Clipboard from '@react-native-clipboard/clipboard';
+
+import {
+  IconButton,
+  Provider as PaperProvider,
+  Snackbar,
+} from 'react-native-paper';
+
 import { Colors } from 'react-native/Libraries/NewAppScreen';
+
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
 
 function getRandomInt(min = 0, max = 100) {
   min = Math.ceil(min);
@@ -27,84 +41,130 @@ function getRandomInt(min = 0, max = 100) {
 }
 
 const styles = StyleSheet.create({
-  button: {
+  resetButton: {
+    position: 'absolute',
+    margin: 16,
+    left: 0,
+    bottom: 0,
+  },
+  copyButton: {
     position: 'absolute',
     margin: 16,
     right: 0,
     bottom: 0,
   },
+  snackbar: {
+    top: '-400%',
+  },
 });
 
 function App(): JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
-  const [H, setH] = React.useState(1);
+  const [H, setH] = React.useState(0);
   const [S, setS] = React.useState(50);
   const [L, setL] = React.useState(50);
-  const [opacity, setOpacity] = React.useState(1);
   const pointerRef = React.useRef({ x: 0, y: 0 });
+  const [openHint, setOpenHint] = React.useState(false);
 
   const backgroundStyle = {
     backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
   };
 
-  const randomH = () => {
-    setH(getRandomInt(1, 360));
+  const onToggleSnackBar = () => setOpenHint(!openHint);
+
+  const onDismissSnackBar = () => setOpenHint(false);
+
+  const randomH = React.useCallback(() => {
+    setH(getRandomInt(0, 360));
+  }, [setH]);
+
+  const setSafeRangeS = (n: number) => {
+    setS(Math.min(100, Math.max(n, 0)));
   };
 
-  const randomS = () => {
-    setS(getRandomInt(0, 100));
+  const setSafeRangeL = (n: number) => {
+    setL(Math.min(100, Math.max(n, 0)));
   };
 
-  const randomL = () => {
-    setL(getRandomInt(0, 100));
+  const resetHSL = () => {
+    setH(0);
+    setS(50);
+    setL(50);
   };
 
-  const randomOpacity = () => {
-    setOpacity(Number(Math.random().toFixed(1)));
+  const copyToClipboard = () => {
+    Clipboard.setString(`hsl(${H}, ${S}%, ${L}%)`);
   };
 
-  const storePointerPosition = (evt: GestureResponderEvent) => {
-    pointerRef.current = {
-      x: evt.nativeEvent.pageX,
-      y: evt.nativeEvent.pageY,
-    };
-  };
+  const singleTapGesture = React.useMemo(
+    () => Gesture.Tap().maxDuration(250).onStart(randomH),
+    [randomH],
+  );
 
-  const triggerEvent = (evt: GestureResponderEvent) => {
-    const deltaX = Math.abs(evt.nativeEvent.pageX - pointerRef.current.x);
-    const deltaY = Math.abs(evt.nativeEvent.pageY - pointerRef.current.y);
-    if (deltaX < 5 && deltaY < 5) {
-      randomH();
-    } else if (deltaX < 5 && deltaY > 5) {
-      randomS();
-    } else if (deltaX > 5 && deltaY < 5) {
-      randomL();
-    }
-  };
+  const panGesture = Gesture.Pan()
+    .onUpdate(e => {
+      setSafeRangeS((e.translationX - pointerRef.current.x) / 5 + S);
+      setSafeRangeL((e.translationY - pointerRef.current.y) / 5 + L);
+      pointerRef.current = {
+        x: e.translationX,
+        y: e.translationY,
+      };
+    })
+    .onEnd(() => {
+      pointerRef.current = {
+        x: 0,
+        y: 0,
+      };
+    });
+
+  const composedGesture = Gesture.Race(singleTapGesture, panGesture);
 
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <View>
-        <View
-          style={{
-            backgroundColor: `hsla(${H}, ${S}%, ${L}%, ${opacity})`,
-            height: '100%',
-          }}
-          onStartShouldSetResponder={evt => {
-            storePointerPosition(evt);
-            return true;
-          }}
-          onResponderRelease={triggerEvent}>
-          <Pressable style={styles.button} onPress={randomOpacity}>
-            <Text>123</Text>
-          </Pressable>
-        </View>
-      </View>
-    </SafeAreaView>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PaperProvider>
+        <SafeAreaView style={backgroundStyle}>
+          <StatusBar
+            barStyle={isDarkMode ? 'light-content' : 'dark-content'}
+            backgroundColor={backgroundStyle.backgroundColor}
+          />
+          <GestureDetector gesture={composedGesture}>
+            <View
+              style={{
+                backgroundColor: `hsl(${H}, ${S}%, ${L}%)`,
+                height: '100%',
+              }}
+            />
+          </GestureDetector>
+          <IconButton
+            style={styles.resetButton}
+            icon="backup-restore"
+            size={40}
+            iconColor="#fff"
+            onPress={resetHSL}
+          />
+          <IconButton
+            style={styles.copyButton}
+            icon="content-copy"
+            size={40}
+            iconColor="#fff"
+            onPress={() => {
+              copyToClipboard();
+              onToggleSnackBar();
+            }}
+          />
+          <Snackbar
+            visible={openHint}
+            onDismiss={onDismissSnackBar}
+            duration={2000}
+            style={styles.snackbar}
+            action={{
+              label: 'OK',
+            }}>
+            Copy color success!
+          </Snackbar>
+        </SafeAreaView>
+      </PaperProvider>
+    </GestureHandlerRootView>
   );
 }
 
